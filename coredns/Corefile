@@ -1,0 +1,9 @@
+ 
+.:53 {
+    forward . 8.8.8.8 9.9.9.9 1.1.1.1
+    log
+    errors
+    dnstap tcp://vector:9053 full
+    prometheus localhost:9253
+}
+

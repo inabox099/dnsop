@@ -1,0 +1,172 @@
+api:
+  enabled: true
+  address: 0.0.0.0:8686
+
+sources:
+  dnstap_source:
+    type: dnstap
+    address: 0.0.0.0:9053
+    mode: tcp
+    
+
+transforms:
+  dnstap_json:
+    type: remap
+    inputs:
+      - dnstap_source
+    source: |
+
+      message = .
+      .= {}
+      .log_type = "raw"
+
+      if message.messageType == "ClientQuery" {
+
+            .rcodeName = message.requestData.rcodeName
+            .qname = message.requestData.question[0].domainName
+            .qtype = message.requestData.question[0].questionType
+      }
+
+      if message.messageType == "ForwarderQuery" {
+            .rcodeName = message.requestData.rcodeName
+            .qname = message.requestData.question[0].domainName
+            .qtype = message.requestData.question[0].questionType
+      }
+
+      if message.messageType == "ForwarderResponse" {
+            .rcodeName = message.responseData.rcodeName
+            .qname = message.responseData.question[0].domainName
+            .qtype = message.responseData.question[0].questionType            
+      }
+
+      if message.messageType == "ClientResponse" {
+            .rcodeName = message.responseData.rcodeName
+            .qname = message.responseData.question[0].domainName
+            .qtype = message.responseData.question[0].questionType 
+      }
+      .messageType = message.messageType
+      .rcode = message.responseData.rcodeName
+      .proto = message.socketProtocol
+      .source = message.sourceAddress
+      .host = message.host
+      .timestamp = message.timestamp
+
+  filter_client_responses:
+    type: filter
+    inputs:
+      - dnstap_json
+    condition: .messageType == "ClientResponse"
+
+  dns_message_reduce:
+    type: reduce
+    inputs:
+      - filter_client_responses
+    group_by:
+      - qname
+      - source
+      - qtype
+      - rcode
+    merge_strategies:
+      timestamp: array
+    expire_after_ms: 10000
+    flush_period_ms: 10000
+    end_every_period_ms: 10000
+
+  qname_reduce:
+    type: reduce
+    inputs:
+      - filter_client_responses
+    group_by:
+      - qname
+      - qtype
+      - rcode
+    merge_strategies:
+      timestamp: array
+    expire_after_ms: 10000
+    flush_period_ms: 10000
+    end_every_period_ms: 10000
+
+  qname_format_reduced:
+    type: remap
+    inputs:
+      - qname_reduce
+    source: |
+      message = .
+      . = {}
+      .log_type = "qname_aggregated"
+      .qname = message.qname
+      .qtype = message.qtype
+      .rcode = message.rcode
+      .query_count = length!(message.timestamp)
+
+  dnstap_format_reduced:
+    type: remap
+    inputs:
+      - dns_message_reduce
+    source: |
+      message = .
+      . = {}
+      .log_type = "dnstap_aggregated"
+      .qname = message.qname
+      .source = message.source
+      .qtype = message.qtype
+      .rcode = message.rcode
+      .query_count = length!(message.timestamp)
+      .last_timestamp = message.timestamp[-1]
+
+
+  client_metric:
+    type: log_to_metric
+    inputs:
+      - dns_message_reduce
+    metrics:
+      - type: histogram
+        field: query_count
+        name: count
+        namespace: dns
+        tags:
+          qname: "{{ .qname }}"
+          source: "{{ .source }}"
+          qtype: "{{ .qtype }}"
+          rcode: "{{ .rcode }}"
+
+  qname_metric:
+    type: log_to_metric
+    inputs:
+      - qname_format_reduced
+    metrics:
+      - type: counter
+        increment_by_value: true
+        field: query_count
+        name: count
+        kind: incremental
+        namespace: dns_aggregated
+        tags:
+          qname: "{{ .qname }}"
+          qtype: "{{ .qtype }}"
+          rcode: "{{ .rcode }}"
+
+sinks:
+  console:
+    inputs:
+      - dns_message_reduce
+      - qname_metric
+      - client_metric
+    target: stdout
+    type: console
+    encoding:
+      codec: json
+      json:
+        pretty: true
+  loki_sink:
+    type: loki
+    inputs:
+      - dnstap_json
+      - dnstap_format_reduced
+      - qname_format_reduced
+    encoding:
+      codec: json
+    labels:
+      service_name: coredns
+      log_type: "{{ .log_type }}"
+    endpoint: http://loki:3100
