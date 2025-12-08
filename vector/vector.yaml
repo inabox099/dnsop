@@ -1,0 +1,105 @@
+api:
+  enabled: true
+  address: "0.0.0.0:8686"
+
+sources:
+  # Collect logs from Docker containers
+  docker_logs:
+    type: docker_logs
+    docker_host: "unix:///var/run/docker.sock"
+    include_containers:
+      - coredns
+    
+  # Collect CoreDNS metrics
+  coredns_metrics:
+    type: prometheus_scrape
+    endpoints:
+      - "http://coredns:9153/metrics"
+    scrape_interval_secs: 15
+
+  # Internal Vector metrics
+  vector_metrics:
+    type: internal_metrics
+
+transforms:
+  # Parse CoreDNS logs
+  parse_coredns_logs:
+    type: remap
+    inputs:
+      - docker_logs
+    source: |
+      # Parse CoreDNS query logs
+      if .container_name == "coredns" {
+        .service = "coredns"
+        .log_type = "dns_query"
+        
+        # Try to parse structured log format
+        parsed, err = parse_json(.message)
+        if err == null {
+          . = merge(., parsed)
+        }
+      }
+
+  # Add labels to metrics
+  add_metric_labels:
+    type: remap
+    inputs:
+      - coredns_metrics
+      - vector_metrics
+    source: |
+      .tags.environment = "dev"
+      .tags.service = .tags.job ?? "unknown"
+
+  # Create structured events for traces
+  create_trace_events:
+    type: remap
+    inputs:
+      - parse_coredns_logs
+    source: |
+      if exists(.query) {
+        .trace_id = uuid_v4()
+        .span_id = uuid_v4()
+        .operation_name = "dns_query"
+        .duration_ms = to_int(.duration ?? 0)
+      }
+
+sinks:
+  # Send logs to Loki
+  loki_logs:
+    type: loki
+    inputs:
+      - parse_coredns_logs
+    endpoint: "http://loki:3100"
+    encoding:
+      codec: json
+    labels:
+      service: "{{ service }}"
+      container: "{{ container_name }}"
+      log_type: "{{ log_type }}"
+    
+  # Send metrics to Mimir
+  mimir_metrics:
+    type: prometheus_remote_write
+    inputs:
+      - add_metric_labels
+    endpoint: "http://mimir:9009/api/v1/push"
+    
+  # Send traces to Tempo (via OTLP HTTP)
+  tempo_traces:
+    type: http
+    inputs:
+      - create_trace_events
+    uri: "http://tempo:4318/v1/traces"
+    encoding:
+      codec: json
+    headers:
+      Content-Type: "application/json"
+    
+  # Console output for debugging
+  console_logs:
+    type: console
+    inputs:
+      - parse_coredns_logs
+    encoding:
+      codec: json
+    target: stdout
