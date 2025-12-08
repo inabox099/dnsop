@@ -17,7 +17,7 @@ up: ## Start all services
 	@echo "  - Tempo: http://localhost:3200"
 	@echo "  - Mimir: http://localhost:9009"
 	@echo "  - Vector API: http://localhost:8686"
-	@echo "  - CoreDNS: localhost:53"
+	@echo "  - CoreDNS: localhost:5353"
 
 down: ## Stop all services
 	docker compose down
@@ -37,9 +37,9 @@ clean: ## Stop services and remove volumes (WARNING: deletes all data)
 
 test-dns: ## Run DNS query tests
 	@echo "Testing example.com zone..."
-	@dig @localhost example.com +short || echo "CoreDNS not ready yet"
-	@dig @localhost www.example.com +short || echo "CoreDNS not ready yet"
-	@dig @localhost api.example.com +short || echo "CoreDNS not ready yet"
+	@dig @localhost -p 5353 example.com +short || echo "CoreDNS not ready yet"
+	@dig @localhost -p 5353 www.example.com +short || echo "CoreDNS not ready yet"
+	@dig @localhost -p 5353 api.example.com +short || echo "CoreDNS not ready yet"
 	@echo ""
 	@echo "Testing forwarding to external DNS..."
-	@dig @localhost google.com +short | head -1 || echo "CoreDNS not ready yet"
+	@dig @localhost -p 5353 google.com +short | head -1 || echo "CoreDNS not ready yet"

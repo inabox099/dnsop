@@ -36,7 +36,7 @@ transforms:
         # Try to parse structured log format
         parsed, err = parse_json(.message)
         if err == null {
-          . = merge(., parsed)
+          ., merge_err = merge(., parsed)
         }
       }
 
@@ -48,19 +48,10 @@ transforms:
       - vector_metrics
     source: |
       .tags.environment = "dev"
-      .tags.service = .tags.job ?? "unknown"
-
-  # Create structured events for traces
-  create_trace_events:
-    type: remap
-    inputs:
-      - parse_coredns_logs
-    source: |
-      if exists(.query) {
-        .trace_id = uuid_v4()
-        .span_id = uuid_v4()
-        .operation_name = "dns_query"
-        .duration_ms = to_int(.duration ?? 0)
+      if !exists(.tags.job) {
+        .tags.service = "unknown"
+      } else {
+        .tags.service = .tags.job
       }
 
 sinks:
@@ -83,17 +74,6 @@ sinks:
     inputs:
       - add_metric_labels
     endpoint: "http://mimir:9009/api/v1/push"
-    
-  # Send traces to Tempo (via OTLP HTTP)
-  tempo_traces:
-    type: http
-    inputs:
-      - create_trace_events
-    uri: "http://tempo:4318/v1/traces"
-    encoding:
-      codec: json
-    headers:
-      Content-Type: "application/json"
     
   # Console output for debugging
   console_logs:

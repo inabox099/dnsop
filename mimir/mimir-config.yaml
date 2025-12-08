@@ -19,7 +19,7 @@ blocks_storage:
     dir: /data/mimir/blocks
   tsdb:
     dir: /data/mimir/tsdb
-    retention_period: 7d
+    retention_period: 168h
 
 compactor:
   data_dir: /data/mimir/compactor
@@ -51,7 +51,7 @@ ruler_storage:
     dir: /data/mimir/ruler
 
 alertmanager:
-  data_dir: /data/mimir/alertmanager
+  data_dir: /data/mimir/alertmanager-data
   enable_api: true
   external_url: http://localhost:9009/alertmanager
 

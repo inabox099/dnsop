@@ -17,7 +17,7 @@ This setup provides a complete observability pipeline for DNS operations:
 ## Components
 
 ### CoreDNS
-- Serves DNS queries on port 53 (UDP/TCP)
+- Serves DNS queries on port 5353 (UDP/TCP)
 - Provides Prometheus metrics on port 9153
 - Health check endpoint on port 8080
 - Configured with example zone file for `example.com`
@@ -59,19 +59,19 @@ docker compose up -d
 - **Tempo**: http://localhost:3200
 - **Mimir**: http://localhost:9009
 - **Vector API**: http://localhost:8686
-- **CoreDNS**: localhost:53 (DNS queries)
+- **CoreDNS**: localhost:5353 (DNS queries)
 
 ### Testing DNS Queries
 
 ```bash
 # Query the example zone
-dig @localhost example.com
-dig @localhost www.example.com
-dig @localhost api.example.com
+dig @localhost -p 5353 example.com
+dig @localhost -p 5353 www.example.com
+dig @localhost -p 5353 api.example.com
 
 # Query external domains (forwarded to 8.8.8.8)
-dig @localhost google.com
-dig @localhost github.com
+dig @localhost -p 5353 google.com
+dig @localhost -p 5353 github.com
 ```
 
 ### Viewing Logs and Metrics
