@@ -1,0 +1,29 @@
+.:53 {
+    # Enable error logging
+    errors
+
+    # Enable query logging in structured format
+    log {
+        class all
+    }
+
+    # Enable prometheus metrics
+    prometheus :9153
+
+    # Serve zone files
+    file /zones/example.com.zone example.com
+
+    # Forward everything else to public DNS
+    forward . 8.8.8.8 8.8.4.4 {
+        max_concurrent 1000
+    }
+
+    # Cache responses
+    cache 30
+
+    # Enable health check endpoint
+    health :8080
+
+    # Enable reload on zone file changes
+    reload
+}

@@ -1,0 +1,115 @@
+services:
+  # CoreDNS - DNS Server
+  coredns:
+    image: coredns/coredns:1.11.1
+    container_name: coredns
+    ports:
+      - "5353:53/udp"
+      - "5353:53/tcp"
+    volumes:
+      - ./coredns/Corefile:/Corefile:ro
+      - ./coredns/zones:/zones:ro
+    command: -conf /Corefile
+    networks:
+      - dnsop
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Vector - Data Collection and Transformation
+  vector:
+    image: timberio/vector:0.34.1-alpine
+    container_name: vector
+    ports:
+      - "8686:8686" # Vector API
+    volumes:
+      - ./vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: --config /etc/vector/vector.yaml
+    networks:
+      - dnsop
+    depends_on:
+      - loki
+      - tempo
+      - mimir
+    restart: unless-stopped
+
+  # Loki - Log Aggregation
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    networks:
+      - dnsop
+    restart: unless-stopped
+
+  # Tempo - Distributed Tracing
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    volumes:
+      - ./tempo/tempo-config.yaml:/etc/tempo/tempo-config.yaml:ro
+      - tempo-data:/tmp/tempo
+    command: -config.file=/etc/tempo/tempo-config.yaml
+    networks:
+      - dnsop
+    restart: unless-stopped
+
+  # Mimir - Metrics Storage
+  mimir:
+    image: grafana/mimir:2.10.4
+    container_name: mimir
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir/mimir-config.yaml:/etc/mimir/mimir-config.yaml:ro
+      - mimir-data:/data
+    command: -config.file=/etc/mimir/mimir-config.yaml
+    networks:
+      - dnsop
+    restart: unless-stopped
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    networks:
+      - dnsop
+    depends_on:
+      - loki
+      - tempo
+      - mimir
+    restart: unless-stopped
+
+networks:
+  dnsop:
+    driver: bridge
+
+volumes:
+  loki-data:
+  tempo-data:
+  mimir-data:
+  grafana-data:
