@@ -14,6 +14,19 @@ This setup provides a complete observability pipeline for DNS operations:
 - **Tempo**: Distributed tracing
 - **Mimir**: Long-term metrics storage
 
+### Dashboard Preview
+
+The included Grafana dashboard provides real-time visibility into DNS operations:
+
+![DNS Observability Dashboard](https://github.com/user-attachments/assets/2e792a52-c225-46fb-9a52-acdec96dd4cf)
+
+The dashboard includes:
+- DNS request rate visualization
+- Total queries per second gauge
+- Real-time CoreDNS logs
+- Response code distribution
+- Query latency percentiles (p50, p95, p99)
+
 ## Components
 
 ### CoreDNS
@@ -46,6 +59,8 @@ This setup provides a complete observability pipeline for DNS operations:
 ```bash
 docker compose up -d
 ```
+
+See [QUICKSTART.md](QUICKSTART.md) for detailed instructions.
 
 ### Accessing Services
 
