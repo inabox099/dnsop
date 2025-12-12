@@ -1,0 +1,25 @@
+; This is a root zone file for an internal root server
+; Replace the IP addresses with the actual addresses of your internal root servers
+.                       3600000 IN  SOA     a.root-servers.internal. admin.internal. (
+                                2023101001 ; Serial
+                                7200       ; Refresh
+                                3600       ; Retry
+                                1209600    ; Expire
+                                3600000 )  ; Minimum TTL
+
+.                       3600000 IN  NS      a.root-servers.internal.
+.                       3600000 IN  NS      b.root-servers.internal.
+.                       3600000 IN  NS      c.root-servers.internal.
+
+a.root-servers.internal. 3600000 IN  A       10.10.1.21
+b.root-servers.internal. 3600000 IN  A       10.10.1.21
+c.root-servers.internal. 3600000 IN  A       10.10.1.21
+
+example.com         IN NS   ns1.example.com.
+example.com         IN NS   ns2.example.com.
+
+ns1.example.com     IN A    10.10.1.21
+ns2.example.com     IN A    10.10.1.21
+
+
+; End of root zone file

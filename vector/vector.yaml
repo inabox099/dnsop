@@ -7,6 +7,10 @@ sources:
     type: dnstap
     address: 0.0.0.0:9053
     mode: tcp
+
+  vector_source:
+    type: vector
+    address: 0.0.0.0:9054
     
 
 transforms:
@@ -19,9 +23,8 @@ transforms:
       message = .
       .= {}
       .log_type = "raw"
-
+      .service = "coredns"
       if message.messageType == "ClientQuery" {
-
             .rcodeName = message.requestData.rcodeName
             .qname = message.requestData.question[0].domainName
             .qtype = message.requestData.question[0].questionType
@@ -44,6 +47,7 @@ transforms:
             .qname = message.responseData.question[0].domainName
             .qtype = message.responseData.question[0].questionType 
       }
+
       .messageType = message.messageType
       .rcode = message.responseData.rcodeName
       .proto = message.socketProtocol
@@ -55,6 +59,7 @@ transforms:
     type: filter
     inputs:
       - dnstap_json
+      - vector_source
     condition: .messageType == "ClientResponse"
 
   dns_message_reduce:
@@ -97,9 +102,9 @@ transforms:
       .qname = message.qname
       .qtype = message.qtype
       .rcode = message.rcode
-      .query_count = length!(message.timestamp)
+      .count = length!(message.timestamp)
 
-  dnstap_format_reduced:
+  dns_message_aggregated:
     type: remap
     inputs:
       - dns_message_reduce
@@ -111,17 +116,18 @@ transforms:
       .source = message.source
       .qtype = message.qtype
       .rcode = message.rcode
-      .query_count = length!(message.timestamp)
+      .count = length!(message.timestamp)
       .last_timestamp = message.timestamp[-1]
 
 
   client_metric:
     type: log_to_metric
     inputs:
-      - dns_message_reduce
+      - dns_message_aggregated
     metrics:
-      - type: histogram
-        field: query_count
+      - type: counter
+        increment_by_value: true
+        field: count
         name: count
         namespace: dns
         tags:
@@ -137,10 +143,10 @@ transforms:
     metrics:
       - type: counter
         increment_by_value: true
-        field: query_count
+        field: count
         name: count
         kind: incremental
-        namespace: dns_aggregated
+        namespace: dns
         tags:
           qname: "{{ .qname }}"
           qtype: "{{ .qtype }}"
@@ -158,15 +164,31 @@ sinks:
       codec: json
       json:
         pretty: true
+  dnstap_file:
+    type: file
+    inputs:
+      - dnstap_json
+      - vector_source
+    path: /tmp/dnstap_raw.jsonl
+    encoding:
+      codec: json
   loki_sink:
     type: loki
     inputs:
       - dnstap_json
-      - dnstap_format_reduced
+      - dns_message_aggregated
       - qname_format_reduced
     encoding:
       codec: json
     labels:
-      service_name: coredns
+      service_name: "{{ .service }}"
       log_type: "{{ .log_type }}"
     endpoint: http://loki:3100
+  mimir_sink:
+    type: prometheus_remote_write
+    inputs:
+      - client_metric
+      - qname_metric
+    endpoint: "http://mimir:9090/api/v1/push"
+    healthcheck:
+      enabled: false

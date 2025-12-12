@@ -1,9 +1,11 @@
- 
+example.com:53 {
+    forward example.com 10.10.1.21
+}
+
 .:53 {
-    forward . 8.8.8.8 9.9.9.9 1.1.1.1
+    forward . 10.10.1.22
     log
     errors
     dnstap tcp://vector:9053 full
     prometheus localhost:9253
 }
-

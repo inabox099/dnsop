@@ -1,0 +1,69 @@
+api:
+  enabled: true
+  address: 0.0.0.0:8686
+  
+sources:
+  dnstap_socket:
+    type: dnstap
+    mode: unix
+    max_frame_length: 102400
+    socket_file_mode: 508
+    socket_path: /run/dnstap.sock
+    max_frame_handling_tasks: 10000
+    
+
+transforms:
+  dnstap_json:
+    type: remap
+    inputs:
+      - dnstap_socket
+    source: |
+
+      message = .
+      .= {}
+      .log_type = "raw"
+      .service = "named"
+      if message.messageType == "ClientQuery" {
+
+            .rcodeName = message.requestData.rcodeName
+            .qname = message.requestData.question[0].domainName
+            .qtype = message.requestData.question[0].questionType
+      }
+
+      if message.messageType == "ForwarderQuery" {
+            .rcodeName = message.requestData.rcodeName
+            .qname = message.requestData.question[0].domainName
+            .qtype = message.requestData.question[0].questionType
+      }
+
+      if message.messageType == "ForwarderResponse" {
+            .rcodeName = message.responseData.rcodeName
+            .qname = message.responseData.question[0].domainName
+            .qtype = message.responseData.question[0].questionType            
+      }
+
+      if message.messageType == "ClientResponse" {
+            .rcodeName = message.responseData.rcodeName
+            .qname = message.responseData.question[0].domainName
+            .qtype = message.responseData.question[0].questionType 
+      }
+      .messageType = message.messageType
+      .rcode = message.responseData.rcodeName
+      .proto = message.socketProtocol
+      .source = message.sourceAddress
+      .host = message.host
+      .timestamp = message.timestamp
+
+
+sinks:
+  console_out:
+    type: console
+    inputs:
+      - dnstap_json
+    encoding:
+      codec: json
+  my_sink_id:
+    type: vector
+    inputs:
+      - dnstap_json
+    address: 10.10.1.40:9054
