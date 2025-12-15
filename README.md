@@ -128,3 +128,4 @@ docker network create -d macvlan \
 sudo ip link add wlan0.10 link wlan0 type macvlan mode bridge
 sudo ip addr add 10.10.1.254/24 dev wlan0.10
 sudo ip link set wlan0.10 up
+

@@ -1,3 +1,5 @@
+data_dir: ./data/vector
+
 api:
   enabled: true
   address: 0.0.0.0:8686
@@ -14,7 +16,7 @@ sources:
     
 
 transforms:
-  dnstap_json:
+  coredns_source:
     type: remap
     inputs:
       - dnstap_source
@@ -22,57 +24,127 @@ transforms:
 
       message = .
       .= {}
-      .log_type = "raw"
-      .service = "coredns"
-      if message.messageType == "ClientQuery" {
+      .service_name = "coredns"
+      if exists(message.requestData) {
+            .data = message.requestData
             .rcodeName = message.requestData.rcodeName
             .qname = message.requestData.question[0].domainName
             .qtype = message.requestData.question[0].questionType
+            .id = message.requestData.header.id
       }
 
-      if message.messageType == "ForwarderQuery" {
-            .rcodeName = message.requestData.rcodeName
-            .qname = message.requestData.question[0].domainName
-            .qtype = message.requestData.question[0].questionType
-      }
-
-      if message.messageType == "ForwarderResponse" {
+      if exists(message.responseData) {
+            .data = message.responseData
             .rcodeName = message.responseData.rcodeName
             .qname = message.responseData.question[0].domainName
-            .qtype = message.responseData.question[0].questionType            
+            .qtype = message.responseData.question[0].questionType
+            .id = message.responseData.header.id
       }
-
-      if message.messageType == "ClientResponse" {
-            .rcodeName = message.responseData.rcodeName
-            .qname = message.responseData.question[0].domainName
-            .qtype = message.responseData.question[0].questionType 
-      }
-
+      . |= parse_regex!(.qname,r'^[^.]+\.(?P<zone>.+?)(?:\.)?$')
       .messageType = message.messageType
-      .rcode = message.responseData.rcodeName
       .proto = message.socketProtocol
-      .source = message.sourceAddress
+      .src = message.responseAddress
+      .dst = message.sourceAddress
       .host = message.host
       .timestamp = message.timestamp
 
   filter_client_responses:
     type: filter
     inputs:
-      - dnstap_json
+      - coredns_source
       - vector_source
     condition: .messageType == "ClientResponse"
+
+  # New transforms: group ClientQuery and ClientResponse into a single transaction
+  # Reduce messages by `id` (and qname and qtype) within 30s window, then remap to a
+  # single `client_txn` event. This does not change existing transforms; it
+  # consumes `coredns_source` as requested.
+  client_txn_reduce:
+    type: reduce
+    inputs:
+      - coredns_source
+    group_by:
+      - id
+      - qname
+      - qtype
+    merge_strategies:
+      messageType: array
+      qname: array
+      qtype: array
+      rcode: retain
+      timestamp: array
+    expire_after_ms: 30000
+    flush_period_ms: 30000
+    end_every_period_ms: 30000
+
+  client_txn_remap:
+    type: remap
+    inputs:
+      - client_txn_reduce
+    source: |
+      msg = .
+      . = {}
+      .log_type = "aggregated"
+      .id = msg.id
+      .src = msg.src
+      .dst = msg.dst
+      .rcode = msg.rcode
+      .zone = msg.zone
+      
+      .qname = msg.qname
+      
+      if msg.qtype != null && length!(msg.qtype) > 0 {
+        .qtype = msg.qtype[0]
+      } else {
+        .qtype = null
+      }
+
+      # earliest and latest timestamps if present
+      if msg.timestamp != null && length!(msg.timestamp) > 0 {
+        # keep raw values for inspection
+        .first_ts = parse_timestamp!(msg.timestamp[0], format: "%Y-%m-%dT%H:%M:%S%.fZ")
+        .last_ts = parse_timestamp!(msg.timestamp[-1], format: "%Y-%m-%dT%H:%M:%S%.fZ")
+        
+        .rtt = (to_float(.last_ts) - to_float(.first_ts))
+      }
+
+  avg_resolution_duration:
+    type: reduce
+    inputs:
+      - client_txn_remap
+    group_by:
+      - zone
+    merge_strategies:
+      rtt: array
+    expire_after_ms: 60000
+    flush_period_ms: 60000
+    end_every_period_ms: 60000
+
+  avg_resolution_metric:
+    type: log_to_metric
+    inputs:
+      - avg_resolution_duration
+    metrics:
+      - type: gauge
+        field: rtt
+        name: avg_resolution_duration
+        namespace: dns
+        tags:
+          zone: "{{ .zone }}"
 
   dns_message_reduce:
     type: reduce
     inputs:
       - filter_client_responses
     group_by:
-      - qname
-      - source
-      - qtype
-      - rcode
+    - qname
+    - dst
+    - src
+    - qtype
+    - rcode
     merge_strategies:
       timestamp: array
+      id: array
     expire_after_ms: 10000
     flush_period_ms: 10000
     end_every_period_ms: 10000
@@ -87,6 +159,7 @@ transforms:
       - rcode
     merge_strategies:
       timestamp: array
+      id: array
     expire_after_ms: 10000
     flush_period_ms: 10000
     end_every_period_ms: 10000
@@ -98,10 +171,11 @@ transforms:
     source: |
       message = .
       . = {}
-      .log_type = "qname_aggregated"
+      .log_type = "aggregated"
       .qname = message.qname
       .qtype = message.qtype
       .rcode = message.rcode
+      .field_name = join!(split!(message.qname,"."),"_")
       .count = length!(message.timestamp)
 
   dns_message_aggregated:
@@ -111,30 +185,32 @@ transforms:
     source: |
       message = .
       . = {}
-      .log_type = "dnstap_aggregated"
+      .log_type = "aggregated"
       .qname = message.qname
-      .source = message.source
+      .src = message.src
+      .dst = message.dst
       .qtype = message.qtype
       .rcode = message.rcode
-      .count = length!(message.timestamp)
+      .count = length!(message.id)
       .last_timestamp = message.timestamp[-1]
 
 
-  client_metric:
-    type: log_to_metric
-    inputs:
-      - dns_message_aggregated
-    metrics:
-      - type: counter
-        increment_by_value: true
-        field: count
-        name: count
-        namespace: dns
-        tags:
-          qname: "{{ .qname }}"
-          source: "{{ .source }}"
-          qtype: "{{ .qtype }}"
-          rcode: "{{ .rcode }}"
+#  client_metric:
+#    type: log_to_metric
+#    inputs:
+#      - dns_message_aggregated
+#    metrics:
+#      - type: counter
+#        increment_by_value: true
+#        field: client
+#        name: count
+#        namespace: dns
+#        tags:
+#          qname: "{{ .qname }}"
+#          src: "{{ .src }}"
+#          dst: "{{ .dst }}"
+#          qtype: "{{ .qtype }}"
+#          rcode: "{{ .rcode }}"
 
   qname_metric:
     type: log_to_metric
@@ -144,21 +220,18 @@ transforms:
       - type: counter
         increment_by_value: true
         field: count
-        name: count
+        name: "{{ .field_name }}"
         kind: incremental
         namespace: dns
         tags:
-          qname: "{{ .qname }}"
           qtype: "{{ .qtype }}"
           rcode: "{{ .rcode }}"
 
 sinks:
   console:
     inputs:
-      - dns_message_reduce
       - qname_metric
-      - client_metric
-    target: stdout
+      - avg_resolution_metric
     type: console
     encoding:
       codec: json
@@ -167,7 +240,7 @@ sinks:
   dnstap_file:
     type: file
     inputs:
-      - dnstap_json
+      - coredns_source
       - vector_source
     path: /tmp/dnstap_raw.jsonl
     encoding:
@@ -175,20 +248,23 @@ sinks:
   loki_sink:
     type: loki
     inputs:
-      - dnstap_json
+      - coredns_source
+      - vector_source
       - dns_message_aggregated
       - qname_format_reduced
+      - client_txn_remap
     encoding:
       codec: json
     labels:
-      service_name: "{{ .service }}"
+      service_name: "{{ .service_name }}"
       log_type: "{{ .log_type }}"
     endpoint: http://loki:3100
   mimir_sink:
     type: prometheus_remote_write
     inputs:
-      - client_metric
+      # - client_metric
       - qname_metric
+      - avg_resolution_metric
     endpoint: "http://mimir:9090/api/v1/push"
     healthcheck:
       enabled: false

@@ -1,0 +1,119 @@
+[
+    {
+        "log": {
+            "dataType": "Message",
+            "dataTypeId": 1,
+            "messageType": "ClientQuery",
+            "messageTypeId": 5,
+            "requestData": {
+                "fullRcode": 0,
+                "header": {
+                    "aa": false,
+                    "ad": false,
+                    "anCount": 0,
+                    "arCount": 0,
+                    "cd": false,
+                    "id": 49653,
+                    "nsCount": 0,
+                    "opcode": 0,
+                    "qdCount": 1,
+                    "qr": 0,
+                    "ra": false,
+                    "rcode": 0,
+                    "rd": true,
+                    "tc": false
+                },
+                "question": [
+                    {
+                        "class": "IN",
+                        "domainName": "host.example.com.",
+                        "questionType": "A",
+                        "questionTypeId": 1
+                    }
+                ],
+                "rcodeName": "NoError",
+                "time": 1614781642516276700,
+                "timePrecision": "ns"
+            },
+            "responseAddress": "127.0.0.1",
+            "responsePort": 0,
+            "serverId": "ns1.example.com",
+            "serverVersion": "BIND 9.16.8",
+            "socketFamily": "INET",
+            "socketProtocol": "UDP",
+            "sourceAddress": "127.0.0.1",
+            "sourcePort": 52398,
+            "time": 1614781642516276700,
+            "timePrecision": "ns"
+        }
+    },
+    {
+        "log": {
+            "dataType": "Message",
+            "dataTypeId": 1,
+            "messageType": "ClientResponse",
+            "messageTypeId": 6,
+            "responseAddress": "127.0.0.1",
+            "responseData": {
+                "answers": [
+                    {
+                        "class": "IN",
+                        "domainName": "host.example.com.",
+                        "rData": "192.0.2.100",
+                        "recordType": "A",
+                        "recordTypeId": 1,
+                        "ttl": 3600
+                    }
+                ],
+                "authority": [
+                    {
+                        "class": "IN",
+                        "domainName": "example.com.",
+                        "rData": "ns1.example.com.",
+                        "recordType": "NS",
+                        "recordTypeId": 2,
+                        "ttl": 86400
+                    }
+                ],
+                "fullRcode": 0,
+                "header": {
+                    "aa": true,
+                    "ad": false,
+                    "anCount": 1,
+                    "arCount": 0,
+                    "cd": false,
+                    "id": 49653,
+                    "nsCount": 1,
+                    "opcode": 0,
+                    "qdCount": 1,
+                    "qr": 1,
+                    "ra": true,
+                    "rcode": 0,
+                    "rd": true,
+                    "tc": false
+                },
+                "question": [
+                    {
+                        "class": "IN",
+                        "domainName": "host.example.com.",
+                        "questionType": "A",
+                        "questionTypeId": 1
+                    }
+                ],
+                "rcodeName": "NoError",
+                "time": 1614781642516276700,
+                "timePrecision": "ns"
+            },
+            "responsePort": 0,
+            "serverId": "ns1.example.com",
+            "serverVersion": "BIND 9.16.8",
+            "socketFamily": "INET",
+            "socketProtocol": "UDP",
+            "sourceAddress": "127.0.0.1",
+            "sourceId": "421bce7d-b4e6-b705-6057-7039628a9847",
+            "sourcePort": 52398,
+            "time": 1614781642516276700,
+            "timePrecision": "ns"
+        }
+    }
+]

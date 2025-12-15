@@ -23,6 +23,9 @@ services:
         ipv4_address: 10.10.1.20
 
   named-caching:
+    build:
+      context: ./named
+      dockerfile: Dockerfile
     image: named-dnstap:latest
     container_name: named-caching
     ports:
@@ -30,6 +33,7 @@ services:
       - "5153:53/udp"
     volumes:
       - ./named/named-caching.conf:/etc/named/named.conf
+      - ./named/vector.yaml:/etc/vector/vector.yaml
     networks:
       backend:
         ipv4_address: 10.10.1.22
@@ -37,6 +41,9 @@ services:
       - vector
 
   named-authoritative:
+    build:
+      context: ./named
+      dockerfile: Dockerfile
     image: named-dnstap:latest
     container_name: named-authoritative
     ports:
@@ -68,6 +75,7 @@ services:
     depends_on:
       - coredns
       - loki
+      - mimir
 
   loki:
     image: grafana/loki:latest
@@ -141,3 +149,16 @@ services:
     networks:
       backend:
         ipv4_address: 10.10.1.32
+  trafficgen:
+    build:
+      context: ./trafficgen
+      dockerfile: Dockerfile
+    image: trafficgen:latest
+    container_name: trafficgen
+    environment:
+      - NAMESERVER=10.10.1.20
+    networks:
+      backend:
+        ipv4_address: 10.10.1.33
+    depends_on:
+      - coredns

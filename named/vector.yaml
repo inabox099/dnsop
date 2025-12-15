@@ -21,36 +21,28 @@ transforms:
 
       message = .
       .= {}
-      .log_type = "raw"
-      .service = "named"
-      if message.messageType == "ClientQuery" {
+      .service_name = "named"
 
+      if exists(message.requestData) {
+            .data = message.requestData
             .rcodeName = message.requestData.rcodeName
             .qname = message.requestData.question[0].domainName
             .qtype = message.requestData.question[0].questionType
+            .id = message.requestData.header.id
       }
 
-      if message.messageType == "ForwarderQuery" {
-            .rcodeName = message.requestData.rcodeName
-            .qname = message.requestData.question[0].domainName
-            .qtype = message.requestData.question[0].questionType
-      }
-
-      if message.messageType == "ForwarderResponse" {
+      if exists(message.responseData) {
+            .data = message.responseData
             .rcodeName = message.responseData.rcodeName
             .qname = message.responseData.question[0].domainName
-            .qtype = message.responseData.question[0].questionType            
+            .qtype = message.responseData.question[0].questionType
+            .id = message.responseData.header.id
       }
-
-      if message.messageType == "ClientResponse" {
-            .rcodeName = message.responseData.rcodeName
-            .qname = message.responseData.question[0].domainName
-            .qtype = message.responseData.question[0].questionType 
-      }
+      . |= parse_regex!(.qname,r'^[^.]+\.(?P<zone>.+?)(?:\.)?$')
       .messageType = message.messageType
-      .rcode = message.responseData.rcodeName
       .proto = message.socketProtocol
-      .source = message.sourceAddress
+      .src = message.responseAddress
+      .dst = message.sourceAddress
       .host = message.host
       .timestamp = message.timestamp
 
