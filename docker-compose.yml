@@ -15,7 +15,7 @@ services:
     ports:
       - "5353:53"
       - "5353:53/udp"
-      - "8080:8080"
+      - "9253:9253" # Prometheus
     volumes:
       - ./coredns/Corefile:/etc/coredns/Corefile
     networks:

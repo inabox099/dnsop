@@ -13,7 +13,7 @@ sources:
     
 
 transforms:
-  dnstap_json:
+  dnstap_source:
     type: remap
     inputs:
       - dnstap_socket
@@ -21,6 +21,8 @@ transforms:
 
       message = .
       .= {}
+
+      .log_type = "raw"
       .service_name = "named"
 
       if exists(message.requestData) {
@@ -38,24 +40,23 @@ transforms:
             .qtype = message.responseData.question[0].questionType
             .id = message.responseData.header.id
       }
-      . |= parse_regex!(.qname,r'^[^.]+\.(?P<zone>.+?)(?:\.)?$')
-      .messageType = message.messageType
+      . |= parse_regex!(message.messageType,r'(?<role>\w+)(?<message_type>Query|Response)')
+      . |= parse_regex!(.qname,r'^(?<qname>[^.]+\.(?P<zone>.+?)).$')
       .proto = message.socketProtocol
       .src = message.responseAddress
       .dst = message.sourceAddress
       .host = message.host
       .timestamp = message.timestamp
 
-
 sinks:
   console_out:
     type: console
     inputs:
-      - dnstap_json
+      - dnstap_source
     encoding:
       codec: json
   my_sink_id:
     type: vector
     inputs:
-      - dnstap_json
+      - dnstap_source
     address: 10.10.1.40:9054

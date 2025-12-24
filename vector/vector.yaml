@@ -5,26 +5,51 @@ api:
   address: 0.0.0.0:8686
 
 sources:
-  dnstap_source:
+  dnstap_tcp_listener:
     type: dnstap
     address: 0.0.0.0:9053
     mode: tcp
 
-  vector_source:
+  vector_agent:
     type: vector
     address: 0.0.0.0:9054
     
+  vector_logs:
+     type: internal_logs
+
+  vector_metrics:
+    type: internal_metrics
 
 transforms:
+  vector_source:
+    type: remap
+    inputs:
+      - vector_logs
+    source: |
+      .log_type = "raw"
+      .service_name = "vector"
+
+  named_source:
+    type: remap
+    inputs:
+      - vector_agent
+    source: |
+      .log_type = "raw"
+      .service_name = "named"  
+
   coredns_source:
     type: remap
     inputs:
-      - dnstap_source
+      - dnstap_tcp_listener
     source: |
 
       message = .
       .= {}
+
+      .log_type = "raw"
       .service_name = "coredns"
+      .role = null
+
       if exists(message.requestData) {
             .data = message.requestData
             .rcodeName = message.requestData.rcodeName
@@ -40,20 +65,13 @@ transforms:
             .qtype = message.responseData.question[0].questionType
             .id = message.responseData.header.id
       }
-      . |= parse_regex!(.qname,r'^[^.]+\.(?P<zone>.+?)(?:\.)?$')
-      .messageType = message.messageType
+      . |= parse_regex!(message.messageType,r'(?<role>\w+)(?<message_type>Query|Response)')
+      . |= parse_regex!(.qname,r'^(?<qname>[^.]+\.(?P<zone>.+?)).$')
       .proto = message.socketProtocol
       .src = message.responseAddress
       .dst = message.sourceAddress
       .host = message.host
       .timestamp = message.timestamp
-
-  filter_client_responses:
-    type: filter
-    inputs:
-      - coredns_source
-      - vector_source
-    condition: .messageType == "ClientResponse"
 
   # New transforms: group ClientQuery and ClientResponse into a single transaction
   # Reduce messages by `id` (and qname and qtype) within 30s window, then remap to a
@@ -63,16 +81,18 @@ transforms:
     type: reduce
     inputs:
       - coredns_source
+      - named_source
     group_by:
       - id
       - qname
       - qtype
+      - role
     merge_strategies:
       messageType: array
-      qname: array
+      qname: discard
       qtype: array
-      rcode: retain
-      timestamp: array
+      rcodeName: retain
+      timestamp: flat_unique
     expire_after_ms: 30000
     flush_period_ms: 30000
     end_every_period_ms: 30000
@@ -88,11 +108,14 @@ transforms:
       .id = msg.id
       .src = msg.src
       .dst = msg.dst
-      .rcode = msg.rcode
+      .rcode = msg.rcodeName
       .zone = msg.zone
-      
       .qname = msg.qname
-      
+      .service_name = "vector"
+      .message_type = msg.message_type
+      .role = msg.role
+      .timestamp = msg.timestamp
+
       if msg.qtype != null && length!(msg.qtype) > 0 {
         .qtype = msg.qtype[0]
       } else {
@@ -104,87 +127,89 @@ transforms:
         # keep raw values for inspection
         .first_ts = parse_timestamp!(msg.timestamp[0], format: "%Y-%m-%dT%H:%M:%S%.fZ")
         .last_ts = parse_timestamp!(msg.timestamp[-1], format: "%Y-%m-%dT%H:%M:%S%.fZ")
-        
-        .rtt = (to_float(.last_ts) - to_float(.first_ts))
+        .rtt = (to_float(.last_ts) - to_float(.first_ts)) 
       }
 
-  avg_resolution_duration:
+  metric_avg_rtt_reduce:
     type: reduce
     inputs:
       - client_txn_remap
     group_by:
       - zone
+      - role
     merge_strategies:
-      rtt: array
+      rtt: sum
+      id: array
     expire_after_ms: 60000
     flush_period_ms: 60000
     end_every_period_ms: 60000
 
-  avg_resolution_metric:
+  metric_avg_rtt_remap:
+    type: remap
+    inputs:
+      - metric_avg_rtt_reduce
+    source: |
+      msg = .
+      . = {}
+      .zone = msg.zone
+      .field_name = replace(replace!(msg.zone, ".","_"),"-","_")
+      .count = length!(msg.id)
+      .rtt = msg.rtt
+      .avg_rtt, _ =  length!(msg.id) / msg.rtt 
+
+  metric_avg_rtt:
     type: log_to_metric
     inputs:
-      - avg_resolution_duration
+      - metric_avg_rtt_remap
     metrics:
       - type: gauge
         field: rtt
-        name: avg_resolution_duration
-        namespace: dns
+        name: "{{ .field_name }}"
+        namespace: rtt
         tags:
           zone: "{{ .zone }}"
+          role: "{{ .role }}"
 
-  dns_message_reduce:
+  metric_zone_query_count:
+    type: log_to_metric
+    inputs:
+      - metric_avg_rtt_remap
+    metrics:
+      - type: gauge
+        field: count
+        name: "{{ .field_name }}"
+        namespace: count
+        tags:
+          zone: "{{ .zone }}"
+          role: "{{ .role }}"
+            
+  f_dns_reduce:
     type: reduce
     inputs:
-      - filter_client_responses
+      - client_txn_remap
     group_by:
     - qname
-    - dst
-    - src
     - qtype
     - rcode
+    - role
     merge_strategies:
-      timestamp: array
       id: array
-    expire_after_ms: 10000
-    flush_period_ms: 10000
-    end_every_period_ms: 10000
+      rtt: sum
+      message_type: array
+      timestamp: flat_unique
+      role: discard
+    expire_after_ms: 30000
+    flush_period_ms: 30000
+    end_every_period_ms: 30000
 
-  qname_reduce:
-    type: reduce
-    inputs:
-      - filter_client_responses
-    group_by:
-      - qname
-      - qtype
-      - rcode
-    merge_strategies:
-      timestamp: array
-      id: array
-    expire_after_ms: 10000
-    flush_period_ms: 10000
-    end_every_period_ms: 10000
-
-  qname_format_reduced:
+  f_dns:
     type: remap
     inputs:
-      - qname_reduce
+      - f_dns_reduce
     source: |
       message = .
       . = {}
-      .log_type = "aggregated"
-      .qname = message.qname
-      .qtype = message.qtype
-      .rcode = message.rcode
-      .field_name = join!(split!(message.qname,"."),"_")
-      .count = length!(message.timestamp)
-
-  dns_message_aggregated:
-    type: remap
-    inputs:
-      - dns_message_reduce
-    source: |
-      message = .
-      . = {}
+      .service_name = "aggregator"
       .log_type = "aggregated"
       .qname = message.qname
       .src = message.src
@@ -192,79 +217,79 @@ transforms:
       .qtype = message.qtype
       .rcode = message.rcode
       .count = length!(message.id)
+      .role = message.role
       .last_timestamp = message.timestamp[-1]
+      .delta = 30
+      .zone = message.zone
 
+  metric_f_dns_remap:
+    type: remap
+    inputs:
+      - f_dns
+    source: |
+      msg = .
+      . = {}
+      .zone = msg.zone
+      .qtype = msg.qtype
+      .count = msg.count
+      .rcode = msg.rcode
+      .role = msg.role
+      .field_name = replace(replace!(msg.qname, ".","_"),"-","_")    
 
-#  client_metric:
-#    type: log_to_metric
-#    inputs:
-#      - dns_message_aggregated
-#    metrics:
-#      - type: counter
-#        increment_by_value: true
-#        field: client
-#        name: count
-#        namespace: dns
-#        tags:
-#          qname: "{{ .qname }}"
-#          src: "{{ .src }}"
-#          dst: "{{ .dst }}"
-#          qtype: "{{ .qtype }}"
-#          rcode: "{{ .rcode }}"
-
-  qname_metric:
+  metric_f_dns:
     type: log_to_metric
     inputs:
-      - qname_format_reduced
+      - metric_f_dns_remap
     metrics:
-      - type: counter
-        increment_by_value: true
+      - type: gauge
         field: count
         name: "{{ .field_name }}"
-        kind: incremental
-        namespace: dns
+        namespace: qname
         tags:
+          zone: "{{ .zone }}"
+          role: "{{ .role }}"
           qtype: "{{ .qtype }}"
           rcode: "{{ .rcode }}"
 
 sinks:
-  console:
-    inputs:
-      - qname_metric
-      - avg_resolution_metric
-    type: console
-    encoding:
-      codec: json
-      json:
-        pretty: true
+  # console:
+  #   inputs: []
+  #   type: console
+  #   encoding:
+  #     codec: json
+  #     json:
+  #       pretty: true
+  
   dnstap_file:
     type: file
     inputs:
       - coredns_source
-      - vector_source
+      - named_source
     path: /tmp/dnstap_raw.jsonl
     encoding:
       codec: json
+  
   loki_sink:
     type: loki
     inputs:
       - coredns_source
+      - named_source
+      - f_dns
       - vector_source
-      - dns_message_aggregated
-      - qname_format_reduced
-      - client_txn_remap
     encoding:
       codec: json
     labels:
       service_name: "{{ .service_name }}"
       log_type: "{{ .log_type }}"
     endpoint: http://loki:3100
+  
   mimir_sink:
     type: prometheus_remote_write
     inputs:
-      # - client_metric
-      - qname_metric
-      - avg_resolution_metric
+      - metric_avg_rtt
+      - metric_zone_query_count
+      - metric_f_dns
+      - vector_metrics
     endpoint: "http://mimir:9090/api/v1/push"
     healthcheck:
       enabled: false
