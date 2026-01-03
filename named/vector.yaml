@@ -7,12 +7,28 @@ sources:
     type: dnstap
     mode: unix
     max_frame_length: 102400
-    socket_file_mode: 508
+    socket_file_mode: 507
     socket_path: /run/dnstap.sock
     max_frame_handling_tasks: 10000
-    
+
+  named_logs:
+    type: file
+    include:
+      # - /var/named/log/query.log      
+      - /var/named/log/response.log      
 
 transforms:
+  remap_named_logs:
+    type: remap
+    inputs:
+      - named_logs
+    source: |
+      structured = parse_syslog!(.message)
+      . = merge(., structured)
+
+      .log_type = "syslog"
+      .service_name = "named_syslog"
+
   dnstap_source:
     type: remap
     inputs:
@@ -22,8 +38,8 @@ transforms:
       message = .
       .= {}
 
-      .log_type = "raw"
-      .service_name = "named"
+      .log_type = "dnstap"
+      .service_name = "named_dnstap"
 
       if exists(message.requestData) {
             .data = message.requestData
@@ -48,6 +64,7 @@ transforms:
       .host = message.host
       .timestamp = message.timestamp
 
+
 sinks:
   console_out:
     type: console
@@ -55,8 +72,9 @@ sinks:
       - dnstap_source
     encoding:
       codec: json
-  my_sink_id:
+  vector_sink:
     type: vector
     inputs:
       - dnstap_source
+      - remap_named_logs
     address: 10.10.1.40:9054

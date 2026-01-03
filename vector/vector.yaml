@@ -29,13 +29,13 @@ transforms:
       .log_type = "raw"
       .service_name = "vector"
 
-  named_source:
-    type: remap
-    inputs:
+  route_named:
+    type: route
+    inputs: 
       - vector_agent
-    source: |
-      .log_type = "raw"
-      .service_name = "named"  
+    route:
+      dnstap: .log_type == "dnstap"
+      syslog: .log_type == "syslog"    
 
   coredns_source:
     type: remap
@@ -81,7 +81,7 @@ transforms:
     type: reduce
     inputs:
       - coredns_source
-      - named_source
+      - route_named.dnstap
     group_by:
       - id
       - qname
@@ -252,19 +252,20 @@ transforms:
           rcode: "{{ .rcode }}"
 
 sinks:
-  # console:
-  #   inputs: []
-  #   type: console
-  #   encoding:
-  #     codec: json
-  #     json:
-  #       pretty: true
+  console:
+    inputs: 
+      - route_named._unmatched
+    type: console
+    encoding:
+      codec: json
+      json:
+        pretty: true
   
   dnstap_file:
     type: file
     inputs:
       - coredns_source
-      - named_source
+      - route_named.dnstap
     path: /tmp/dnstap_raw.jsonl
     encoding:
       codec: json
@@ -272,15 +273,17 @@ sinks:
   loki_sink:
     type: loki
     inputs:
-      - coredns_source
-      - named_source
-      - f_dns
       - vector_source
+      - coredns_source
+      - f_dns
+      - route_named.dnstap
+      - route_named.syslog
     encoding:
       codec: json
     labels:
       service_name: "{{ .service_name }}"
       log_type: "{{ .log_type }}"
+      detected_level: "debug"
     endpoint: http://loki:3100
   
   mimir_sink:

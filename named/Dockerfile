@@ -22,12 +22,20 @@ RUN rm -rf /home/builduser/bind-git && \
     pacman -Rns --noconfirm base-devel git sudo && \
     pacman -Scc --noconfirm
 
+
+
 # Download the root hints file and save it to /var/named/root.hint
 RUN curl -o /var/named/root.hint https://www.internic.net/domain/named.root
 RUN curl -o /var/named/blocklist.rpz https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/rpz/ultimate.mini.txt
 RUN sed -E 's/([[:space:]]+)CNAME[[:space:]]*\./\1A 0.0.0.0/g' /var/named/blocklist.rpz -i
 RUN chown named:named /var/named/root.hint
 RUN chown named:named /var/named/blocklist.rpz
+
+
+# COPY logging.conf /etc/logging.conf
+# RUN chown named:named /etc/logging.conf
+RUN mkdir -p /var/named/log
+RUN chown -R named:named /var/named
 
 RUN pacman -S --noconfirm vector && pacman -Scc --noconfirm
 COPY vector.yaml /etc/vector/vector.yaml

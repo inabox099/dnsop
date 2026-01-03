@@ -32,7 +32,8 @@ trap cleanup SIGINT SIGTERM
 # Start named (DNS server)
 echo "Starting named..."
 
-/usr/sbin/named -g -c /etc/named/named.conf &
+/usr/sbin/named -u named -f -c /etc/named/named.conf &
+
 NAMED_PID=$!
 
 while true; do

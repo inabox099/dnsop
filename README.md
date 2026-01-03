@@ -118,14 +118,16 @@ License
 - Project licensed under: [LICENSE](LICENSE)
 
 
+## Queries
 
-docker network create -d macvlan \
-  --subnet=10.10.1.0/24 \
-  --gateway=10.10.1.1 \
-  -o parent=wlan0.10 \
-  docker_vlan
+```
+count_over_time({your_label="value"}[$__range])
+```
 
-sudo ip link add wlan0.10 link wlan0 type macvlan mode bridge
-sudo ip addr add 10.10.1.254/24 dev wlan0.10
-sudo ip link set wlan0.10 up
 
+```
+count(
+  count_over_time({app="app"}[1h])
+  by (UserID)
+)
+```
