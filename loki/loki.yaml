@@ -28,3 +28,6 @@ schema_config:
 
 analytics:
   reporting_enabled: false
+
+limits_config:
+  volume_enabled: true

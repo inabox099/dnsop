@@ -14,8 +14,7 @@ Quick file references:
 - Mimir config: [mimir/mimir.yaml](mimir/mimir.yaml)
 - Zone files: [named/zones/db.example.com](named/zones/db.example.com), [named/zones/db.root](named/zones/db.root)
 - Persistent storage root: ./data
-- License: [LICENSE](LICENSE)
-- Git ignore: [.gitignore](.gitignore)
+
 
 Architecture — what runs and how it connects
 - docker-compose coordinates services: see [docker-compose.yml](docker-compose.yml).
@@ -43,6 +42,8 @@ Services and configuration details
     - `loki_sink`: sends raw and aggregated JSON logs to Loki at http://loki:3100 (see [loki/loki.yaml](loki/loki.yaml)).
     - `mimir_sink` (prometheus_remote_write): pushes metrics to Mimir at http://mimir:9090/api/v1/push (see [mimir/mimir.yaml](mimir/mimir.yaml)).
     - File/console sinks exist for debugging and local inspection.
+
+  ![CentralVector](img/graph.png)
 
 - Named (BIND) containers and local Vector
   - Image built by [named/Dockerfile](named/Dockerfile) installs BIND and Vector.
@@ -118,6 +119,8 @@ License
 - Project licensed under: [LICENSE](LICENSE)
 
 
+
+# Random Notes - please ignore
 ## Queries
 
 ```
@@ -131,3 +134,9 @@ count(
   by (UserID)
 )
 ```
+
+
+    sysctls:
+    - "net.ipv4.ip_unprivileged_port_start=0"
+
+vector graph -c vector/vector.yaml | dot -Tpng:cairo:gd > graph.png

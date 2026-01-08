@@ -1,4 +1,4 @@
-www.example.com
+www.example.com +subnet=1.1.1.0/24
 mail.google.com
 ftp.microsoft.com
 api.twitter.com
@@ -18,3 +18,5 @@ files.dropbox.com
 forum.reddit.com
 wiki.wikipedia.org
 dev.github.com
+unagi.amazon.ae
+curral.ae

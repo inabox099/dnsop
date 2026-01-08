@@ -14,7 +14,7 @@ sources:
   named_logs:
     type: file
     include:
-      # - /var/named/log/query.log      
+      - /var/named/log/rpz.log      
       - /var/named/log/response.log      
 
 transforms:
@@ -28,6 +28,10 @@ transforms:
 
       .log_type = "syslog"
       .service_name = "named_syslog"
+
+      if .file == "/var/named/log/rpz.log" {
+          .service_name = "named_rpz" 
+      }
 
   dnstap_source:
     type: remap
@@ -69,7 +73,7 @@ sinks:
   console_out:
     type: console
     inputs:
-      - dnstap_source
+      - remap_named_logs
     encoding:
       codec: json
   vector_sink:
